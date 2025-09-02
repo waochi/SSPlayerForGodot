@@ -8,8 +8,11 @@ env_gd_spritestudio = env_modules.Clone()
 env_gd_spritestudio.add_source_files(env.modules_sources, "*.cpp")
 env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Loader/tinyxml2/*.cpp")
 env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Loader/*.cpp")
-env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Helper/*.cpp")
+# env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Helper/*.cpp")
 env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Animator/*.cpp")
+env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Helper/DebugPrint.cpp")
+env_gd_spritestudio.add_source_files(env.modules_sources, "SpriteStudio6-SDK/Common/Helper/IsshTexture.cpp")
+
 
 env_gd_spritestudio.Append(CPPFLAGS=["-fexceptions"])
 
@@ -23,3 +26,9 @@ env_gd_spritestudio.Append(
 		"SpriteStudio6-SDK/Common/Helper",
 		"SpriteStudio6-SDK/Common/Animator",
 	])
+
+if not env_gd_spritestudio.msvc:
+    env_gd_spritestudio.Append(CXXFLAGS=["-Wno-inconsistent-missing-override"])
+
+if env['platform'] == 'macos':
+    env_gd_spritestudio.Append(LINKFLAGS=['-framework', 'Metal'])

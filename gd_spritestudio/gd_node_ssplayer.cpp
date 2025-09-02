@@ -26,6 +26,7 @@ GdNodeSsPlayer::GdNodeSsPlayer()
 , m_bLoop( false )
 , m_bPlay( false )
 , m_bPause( false )
+, m_bTextureInterpolate( true )
 {
 	GdNotifier::getInstance().addItem( this );
 
@@ -47,76 +48,63 @@ GdNodeSsPlayer::~GdNodeSsPlayer()
 	m_Renderer.m_iSetup = 0;
 	SsCurrentRenderer::SetCurrentRender( &m_Renderer );
 
-	m_bAnimeDecoder = false;
-	m_AnimeDecoder.release();
-	m_CellMapList.release();
+	// 二重解放対策：SsAnimeDecoder 側に生ポインタの所有権を渡していない場合に限り解放する。
+	if (m_bAnimeDecoder)
+	{
+		// 解放のみ
+		m_CellMapList.release();
+	}
+	else
+	{
+		// ここで削除
+		m_CellMapList.reset();
+	}
 
 	m_bAnimeDecoder = false;
-	m_AnimeDecoder = 0;
-	m_CellMapList = 0;
+	m_AnimeDecoder.reset();
+	//m_CellMapList.reset();
+
+	m_bAnimeDecoder = false;
+	//m_AnimeDecoder = 0;
+	//m_CellMapList = 0;
 }
 
 void GdNodeSsPlayer::resourcePlayerChanged( const Ref<GdResourceSsPlayer>& resPlayer )
 {
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 void GdNodeSsPlayer::resourceProjectChanged( const Ref<GdResourceSsProject>& resProject )
 {
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 void GdNodeSsPlayer::resourceAnimePackChanged( const Ref<GdResourceSsAnimePack>& resAnimePack )
 {
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 void GdNodeSsPlayer::resourceCellMapChanged( const Ref<GdResourceSsCellMap>& resCellMap )
 {
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 void GdNodeSsPlayer::setPlayerResource( const Ref<GdResourceSsPlayer>& resPlayer )
 {
 	m_ResPlayer = resPlayer;
 
-	m_strAnimationSelected.clear();
+	m_strAnimationSelected.resize(0);
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 Ref<GdResourceSsPlayer> GdNodeSsPlayer::getPlayerResource() const
@@ -144,15 +132,10 @@ void GdNodeSsPlayer::setAnimePack( const String& strName )
 
 	postAnimePackChanged( m_strAnimePackSelected );
 
-	m_strAnimationSelected.clear();
+	m_strAnimationSelected.resize(0);
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 String GdNodeSsPlayer::getAnimePack() const
@@ -168,12 +151,7 @@ void GdNodeSsPlayer::setAnimation( const String& strName )
 
 	fetchAnimation();
 
-#ifdef GD_V4
-	notify_property_list_changed();
-#endif
-#ifdef GD_V3
-	property_list_changed_notify();
-#endif
+	NOTIFY_PROPERTY_LIST_CHANGED();
 }
 
 String GdNodeSsPlayer::getAnimation() const
@@ -268,7 +246,7 @@ void GdNodeSsPlayer::setFrame( int iFrame )
 						const SsSignalParam&	param = command.params.at( k );
 						String					strParamId = String::utf8( param.paramId.c_str() );
 
-						switch ( param.type ) {
+						switch ( static_cast<int>(param.type) ) {
 						case SsSignalParamType::index :
 						case SsSignalParamType::integer :
 							dic[strParamId] = Variant( param.value.i );
@@ -354,6 +332,16 @@ int GdNodeSsPlayer::getFps() const
 	}
 
 	return	0;
+}
+
+void GdNodeSsPlayer::setTextureInterpolate( bool bSwitch )
+{
+	m_bTextureInterpolate = bSwitch;
+}
+
+bool GdNodeSsPlayer::getTextureInterpolate() const
+{
+	return m_bTextureInterpolate;
 }
 
 void GdNodeSsPlayer::setLoop( bool bLoop )
@@ -449,6 +437,8 @@ void GdNodeSsPlayer::_bind_methods()
 	ClassDB::bind_method( D_METHOD( "get_loop" ), &GdNodeSsPlayer::getLoop );
 	ClassDB::bind_method( D_METHOD( "set_play", "play" ), &GdNodeSsPlayer::setPlay );
 	ClassDB::bind_method( D_METHOD( "get_play" ), &GdNodeSsPlayer::getPlay );
+	ClassDB::bind_method( D_METHOD( "set_texture_interpolate", "interpolate" ), &GdNodeSsPlayer::setTextureInterpolate );
+	ClassDB::bind_method( D_METHOD( "get_texture_interpolate" ), &GdNodeSsPlayer::getTextureInterpolate );
 	ClassDB::bind_method( D_METHOD( "play" ), &GdNodeSsPlayer::play );
 	ClassDB::bind_method( D_METHOD( "pause", "b" ), &GdNodeSsPlayer::pause );
 	ClassDB::bind_method( D_METHOD( "stop" ), &GdNodeSsPlayer::stop );
@@ -513,7 +503,7 @@ void GdNodeSsPlayer::_bind_methods()
 
 bool GdNodeSsPlayer::_set( const StringName& p_name, const Variant& p_property )
 {
-	if ( p_name == GdUiText( "anime_pack" ) ) {
+	if ( p_name == StringName(GdUiText( "anime_pack" )) ) {
 		setAnimePack( p_property );
 
 		if ( !m_ResAnimePack.is_null() ) {
@@ -539,23 +529,28 @@ bool GdNodeSsPlayer::_set( const StringName& p_name, const Variant& p_property )
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "animation" ) ) {
+	if ( p_name == StringName(GdUiText( "animation" )) ) {
 		setAnimation( p_property );
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "frame" ) ) {
+	if ( p_name == StringName(GdUiText( "frame" )) ) {
 		setFrame( p_property );
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "loop" ) ) {
+	if ( p_name == StringName(GdUiText( "loop" )) ) {
 		setLoop( p_property );
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "play" ) ) {
+	if ( p_name == StringName(GdUiText( "playing" )) ) {
 		setPlay( p_property );
+
+		return	true;
+	}
+	if ( p_name == StringName(GdUiText( "texture_interpolate" )) ) {
+		setTextureInterpolate( p_property );
 
 		return	true;
 	}
@@ -565,28 +560,33 @@ bool GdNodeSsPlayer::_set( const StringName& p_name, const Variant& p_property )
 
 bool GdNodeSsPlayer::_get( const StringName& p_name, Variant& r_property ) const
 {
-	if ( p_name == GdUiText( "anime_pack" ) ) {
+	if ( p_name == StringName(GdUiText( "anime_pack" )) ) {
 		r_property = getAnimePack();
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "animation" ) ) {
+	if ( p_name == StringName(GdUiText( "animation" )) ) {
 		r_property = getAnimation();
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "frame" ) ) {
+	if ( p_name == StringName(GdUiText( "frame" )) ) {
 		r_property = getFrame();
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "loop" ) ) {
+	if ( p_name == StringName(GdUiText( "loop" )) ) {
 		r_property = getLoop();
 
 		return	true;
 	}else
-	if ( p_name == GdUiText( "play" ) ) {
+	if ( p_name == StringName(GdUiText( "playing" )) ) {
 		r_property = getPlay();
+
+		return	true;
+	}
+	if ( p_name == StringName(GdUiText( "texture_interpolate" )) ) {
+		r_property = getTextureInterpolate();
 
 		return	true;
 	}
@@ -596,7 +596,11 @@ bool GdNodeSsPlayer::_get( const StringName& p_name, Variant& r_property ) const
 
 void GdNodeSsPlayer::_get_property_list( List<PropertyInfo>* p_list ) const
 {
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+	PackedStringArray vecAnimePackName;
+#else
 	Vector<String>	vecAnimePackName;
+#endif
 
 	vecAnimePackName.insert( 0, GdUiText( "-- Empty --" ) );
 
@@ -604,10 +608,14 @@ void GdNodeSsPlayer::_get_property_list( List<PropertyInfo>* p_list ) const
 		Ref<GdResourceSsProject>	resProject = m_ResPlayer->getProjectResource();
 
 		if ( !resProject.is_null() ) {
-			Vector<String>			vec = resProject->getAnimePackNames();
+			auto			vec = resProject->getAnimePackNames();
 
 			for ( int i = 0; i < vec.size(); i++ ) {
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				String		str = vec[ i ];
+#else
 				String		str = vec.get( i );
+#endif
 
 				vecAnimePackName.push_back( str );
 			}
@@ -626,7 +634,11 @@ void GdNodeSsPlayer::_get_property_list( List<PropertyInfo>* p_list ) const
 
 	if ( !m_ResAnimePack.is_null() ) {
 		PropertyInfo	animationsPropertyInfo;
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+		PackedStringArray	vecAnimationName = m_ResAnimePack->getAnimationNames();
+#else
 		Vector<String>	vecAnimationName = m_ResAnimePack->getAnimationNames();
+#endif
 
 		animationsPropertyInfo.name = GdUiText( "animation" );
 		animationsPropertyInfo.type = Variant::STRING;
@@ -647,19 +659,19 @@ void GdNodeSsPlayer::_get_property_list( List<PropertyInfo>* p_list ) const
 		SsAnimation*	pAnimation = pAnimePack->findAnimation( strAnimationName );
 
 		if ( pAnimation ) {
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+			PackedStringArray	vecRange;
+#else
 			Vector<String>	vecRange;
+#endif
 
 			vecRange.push_back( String::num( pAnimation->settings.startFrame ) );
 			vecRange.push_back( String::num( pAnimation->settings.endFrame ) );
 			vecRange.push_back( String::num( 0.1 ) );
 
 			animationsPropertyInfo.name = GdUiText( "frame" );
-#ifdef GD_V4
-			animationsPropertyInfo.type = Variant::FLOAT;
-#endif
-#ifdef GD_V3
-			animationsPropertyInfo.type = Variant::REAL;
-#endif
+			animationsPropertyInfo.type = VARIANT_FLOAT;
+
 			animationsPropertyInfo.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
 			animationsPropertyInfo.hint_string = String( "," ).join( vecRange );
 			animationsPropertyInfo.hint = PROPERTY_HINT_RANGE;
@@ -673,7 +685,14 @@ void GdNodeSsPlayer::_get_property_list( List<PropertyInfo>* p_list ) const
 
 			p_list->push_back( animationsPropertyInfo );
 
-			animationsPropertyInfo.name = GdUiText( "play" );
+			animationsPropertyInfo.name = GdUiText( "playing" );
+			animationsPropertyInfo.type = Variant::BOOL;
+			animationsPropertyInfo.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
+			animationsPropertyInfo.hint = PROPERTY_HINT_NONE;
+
+			p_list->push_back( animationsPropertyInfo );
+
+			animationsPropertyInfo.name = GdUiText( "texture_interpolate" );
 			animationsPropertyInfo.type = Variant::BOOL;
 			animationsPropertyInfo.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
 			animationsPropertyInfo.hint = PROPERTY_HINT_NONE;
@@ -862,7 +881,7 @@ void GdNodeSsPlayer::updateAnimation( float delta )
 		m_AnimeDecoder->update( iDelta );
 	}
 
-#ifdef GD_V4
+#if defined(GD_V4) || defined(SPRITESTUDIO_GODOT_EXTENSION)
 	queue_redraw();
 #endif
 #ifdef GD_V3
@@ -878,6 +897,7 @@ void GdNodeSsPlayer::drawAnimation()
 
 		m_AnimeDecoder->draw();
 
+		m_Renderer.setTextureInterpolate( m_bTextureInterpolate );
 		m_Renderer.draw( get_canvas_item() );
 	}
 }
@@ -885,7 +905,7 @@ void GdNodeSsPlayer::drawAnimation()
 void GdNodeSsPlayer::fetchAnimation()
 {
 	m_bAnimeDecoder = false;
-	if ( !m_strAnimationSelected.length() == 0 ) {
+	if ( !EMPTY(m_strAnimationSelected) ) {
 		if ( m_ResPlayer.is_null() ) {
 			return;
 		}
@@ -975,6 +995,7 @@ void GdNodeSsPlayer::fetchAnimation()
 				m_Renderer.setCanvasSize( fW, fH );
 				m_Renderer.setCanvasCenter( fX, fY );
 				m_Renderer.setFps( iFps );
+//				m_Renderer.setTextureInterpolate( m_bTextureInterpolate );	/* Updated in drawAnimation() */
 			}
 
 			m_Renderer.createPartSprites( &pAnimePack->Model, pProject );

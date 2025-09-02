@@ -4,6 +4,11 @@
 */
 #include "ss_renderer_impl.h"
 
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+#include <godot_cpp/classes/rendering_server.hpp>
+#define VisualServer    RenderingServer
+using namespace godot;
+#else
 #ifdef GD_V4
 #include "servers/rendering_server.h"
 #define	VisualServer	RenderingServer
@@ -11,29 +16,33 @@
 #ifdef GD_V3
 #include "servers/visual_server.h"
 #endif
+#endif
 
 #include "SpriteStudio6-SDK/Common/Animator/ssplayer_matrix.h"
 
 #include "ss_macros.h"
 #include "ss_texture_impl.h"
 
-#include "shader_color.def"
-#include "shader_color_ss_bmask.def"
-#include "shader_color_ss_circle.def"
-#include "shader_color_ss_hsb.def"
-#include "shader_color_ss_move.def"
-#include "shader_color_ss_noise.def"
-#include "shader_color_ss_outline.def"
-#include "shader_color_ss_pix.def"
-#include "shader_color_ss_scatter.def"
-#include "shader_color_ss_sepia.def"
-#include "shader_color_ss_spot.def"
-#include "shader_color_ss_step.def"
-#include "shader_color_ss_wave.def"
+#include "shader_color.h"
+#include "shader_color_ss_bmask.h"
+#include "shader_color_ss_blur.h"
+#include "shader_color_ss_circle.h"
+#include "shader_color_ss_hsb.h"
+#include "shader_color_ss_move.h"
+#include "shader_color_ss_noise.h"
+#include "shader_color_ss_outline.h"
+#include "shader_color_ss_pix.h"
+#include "shader_color_ss_scatter.h"
+#include "shader_color_ss_sepia.h"
+#include "shader_color_ss_spot.h"
+#include "shader_color_ss_step.h"
+#include "shader_color_ss_wave.h"
 
-#include "shader_alpha.def"
+#include "shader_alpha.h"
 
 SsSdkUsing
+
+// static const RID ridTextureDummy = RID();
 
 static void setupTextureCombinerTo_NoBlendRGB_MultiplyAlpha_()
 {
@@ -191,6 +200,8 @@ SsRendererImpl::SsRendererImpl()
 	m_iZOrder = 0;
 	m_iChildZOrder = 0;
 
+	m_bTextureInterpolate = true;
+
 	m_RendererColor.init();
 	m_RendererAlpha.init();
 
@@ -200,6 +211,7 @@ SsRendererImpl::SsRendererImpl()
 	m_mapPartSpriteIdx.clear();
 
 	m_dicShader["ss-bmask"] = shader_color_ss_bmask;
+	m_dicShader["ss-blur"] = shader_color_ss_blur;
 	m_dicShader["ss-circle"] = shader_color_ss_circle;
 	m_dicShader["ss-hsb"] = shader_color_ss_hsb;
 	m_dicShader["ss-move"] = shader_color_ss_move;
@@ -224,7 +236,7 @@ void SsRendererImpl::draw( RID rid )
 	Transform2D			transCanvas;
 	Rect2				rect = Rect2( 0, 0, m_fCanvasWidth, m_fCanvasHeight );
 
-#ifdef GD_V4
+#if defined(GD_V4) || defined(SPRITESTUDIO_GODOT_EXTENSION)
 	transCanvas.set_scale( Size2( 1, -1 ) );
 	transCanvas.translate_local( -m_fCanvasWidth + m_fCanvasX, 0 - m_fCanvasY );
 #endif
@@ -264,6 +276,15 @@ void SsRendererImpl::setFps( int iFps )
 int SsRendererImpl::getFps() const
 {
 	return	m_iFps;
+}
+
+void SsRendererImpl::setTextureInterpolate( bool bSwitch )
+{
+	m_bTextureInterpolate = bSwitch;
+}
+bool SsRendererImpl::getTextureInterpolate() const
+{
+	return m_bTextureInterpolate;
 }
 
 void SsRendererImpl::createPartSprites( SsModel* pModel, SsProject* pProject )
@@ -554,12 +575,21 @@ void SsRendererImpl::renderPart( SsPartState* state )
 	pVisualServer->canvas_item_set_material( pSprite->colorCanvasItemId, pSprite->materialId );
 	pVisualServer->canvas_item_set_material( pSprite->alphaCanvasItemId, pSprite->materialId );
 
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+	PackedVector2Array vecPosition;
+	PackedInt32Array vecIndex;
+	PackedColorArray vecColor;
+	PackedVector2Array vecCoord;
+	PackedInt32Array vecBone;
+	PackedFloat32Array vecWeight;
+#else
 	Vector<Point2>		vecPosition;
 	Vector<int>			vecIndex;
 	Vector<Color>		vecColor;
 	Vector<Point2>		vecCoord;
 	Vector<int>			vecBone;
 	Vector<float>		vecWeight;
+#endif
 
 	int		type = (int)state->partsColorValue.blendType;
 	float*	rates = _rates;
@@ -567,12 +597,12 @@ void SsRendererImpl::renderPart( SsPartState* state )
 	
 	if ( state->is_parts_color ) {
 		if ( state->partsColorValue.target == SsColorBlendTarget::whole ) {
-			rates[0] = state->partsColorValue.color.rate;
+			rates[0] = ( type == 0 ? state->partsColorValue.color.rate : (float)state->partsColorValue.color.rgba.a / 255.0f );	/* 0:mix */
 		}else{
-			rates[0] = state->partsColorValue.colors[0].rate;
-			rates[1] = state->partsColorValue.colors[1].rate;
-			rates[2] = state->partsColorValue.colors[2].rate;
-			rates[3] = state->partsColorValue.colors[3].rate;
+			rates[0] = state->partsColorValue.colors[0].rgba.a / 255.0f;
+			rates[1] = state->partsColorValue.colors[1].rgba.a / 255.0f;
+			rates[2] = state->partsColorValue.colors[2].rgba.a / 255.0f;
+			rates[3] = state->partsColorValue.colors[3].rgba.a / 255.0f;
 
 			int a = 0;
 			a += state->partsColorValue.colors[0].rgba.a;
@@ -587,7 +617,7 @@ void SsRendererImpl::renderPart( SsPartState* state )
 			{
 				alpha = state->localalpha;
 			}
-			for (int i = 0; i < 4; ++i)
+			for (int i = 0; i < 5; ++i)
 			{
 				if (state->partsColorValue.blendType == SsBlendType::mix)
 				{
@@ -601,9 +631,9 @@ void SsRendererImpl::renderPart( SsPartState* state )
 
 	updateShaderSource( *pSprite, m_eBlendTypeDrawing, state->shaderValue.id );
 
-	pVisualServer->material_set_param( pSprite->materialId, "src_ratio", ( type <= 1 ? 1.0f - rates[0] : 1.0f ) );
-	pVisualServer->material_set_param( pSprite->materialId, "dst_ratio", ( type == 3 ? -rates[0] : rates[0] ) );
-	pVisualServer->material_set_param( pSprite->materialId, "dst_src_ratio", ( type == 1 ? 1.0f : 0.0f ) );
+	pVisualServer->material_set_param( pSprite->materialId, "src_ratio", ( type <= 1 ? 1.0f - rates[0] : 1.0f ) );	/* 1:mul, 0:mix */
+	pVisualServer->material_set_param( pSprite->materialId, "dst_ratio", ( type == 3 ? -rates[0] : rates[0] ) );	/* 3:sub */
+	pVisualServer->material_set_param( pSprite->materialId, "dst_src_ratio", ( type == 1 ? 1.0f : 0.0f ) );	/* 1:mul */
 
 	pVisualServer->material_set_param( pSprite->materialId, "A_TW", _args[0] );
 	pVisualServer->material_set_param( pSprite->materialId, "A_TH", _args[1] );
@@ -621,6 +651,8 @@ void SsRendererImpl::renderPart( SsPartState* state )
 	pVisualServer->material_set_param( pSprite->materialId, "P_2", state->shaderValue.param[2] );
 	pVisualServer->material_set_param( pSprite->materialId, "P_3", state->shaderValue.param[3] );
 
+	pVisualServer->material_set_param( pSprite->materialId, "S_INTPL", (m_bTextureInterpolate) ? 1.0f : 0.0f );
+
 //	Transform2D			transCanvas;
 //	Rect2				rect = Rect2( 0, 0, m_fCanvasWidth, m_fCanvasHeight );
 
@@ -633,8 +665,10 @@ void SsRendererImpl::renderPart( SsPartState* state )
 //	pVisualServer->draw( false );
 //	pVisualServer->sync();
 
-	pVisualServer->material_set_param( pSprite->materialId, "color", m_RendererColor.getTextureRid() );
-	pVisualServer->material_set_param( pSprite->materialId, "alpha", m_RendererAlpha.getTextureRid() );
+	pVisualServer->material_set_param( pSprite->materialId, "color", RID() );
+	pVisualServer->material_set_param( pSprite->materialId, "alpha", RID() );
+	pVisualServer->material_set_param( pSprite->materialId, "color_authentic", texture->get_rid() );
+	pVisualServer->material_set_param( pSprite->materialId, "alpha_authentic", texture->get_rid() );
 
 	if ( state->partType == SsPartType::mesh ) {
 		SsMeshPart*		mesh = state->meshPart.get();
@@ -692,7 +726,7 @@ void SsRendererImpl::renderPart( SsPartState* state )
 				vecCoord,
 				vecBone,
 				vecWeight,
-				texture->get_rid()
+				RID()	// texture->get_rid()
 			);
 		}
 	}else
@@ -752,7 +786,7 @@ void SsRendererImpl::renderPart( SsPartState* state )
 			vecCoord,
 			vecBone,
 			vecWeight,
-			texture->get_rid()
+			RID()	// texture->get_rid()
 		);
 	}else
 	{
@@ -1048,12 +1082,21 @@ void SsRendererImpl::renderSpriteSimple( float matrix[16], int width, int height
 	tuv[4] = uv2.x; tuv[5] = uv2.y;
 	tuv[6] = uv2.x; tuv[7] = uv1.y;
 
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+	PackedVector2Array vecPosition;
+	PackedInt32Array vecIndex;
+	PackedColorArray vecColor;
+	PackedVector2Array vecCoord;
+	PackedInt32Array vecBone;
+	PackedFloat32Array vecWeight;
+#else
 	Vector<Point2>		vecPosition;
 	Vector<int>			vecIndex;
 	Vector<Color>		vecColor;
 	Vector<Point2>		vecCoord;
 	Vector<int>			vecBone;
 	Vector<float>		vecWeight;
+#endif
 
 	const uint8_t	indicesStrip[] = { 0, 1, 3, 1, 3, 2 };
 	const uint8_t*	pIndices = NULL;
@@ -1120,6 +1163,8 @@ void SsRendererImpl::renderSpriteSimple( float matrix[16], int width, int height
 	pVisualServer->material_set_param( pSprite->materialId, "P_2", state->shaderValue.param[2] );
 	pVisualServer->material_set_param( pSprite->materialId, "P_3", state->shaderValue.param[3] );
 
+	pVisualServer->material_set_param( pSprite->materialId, "S_INTPL", (m_bTextureInterpolate) ? 1.0f : 0.0f );
+
 //	Transform2D			transCanvas;
 //	Rect2				rect = Rect2( 0, 0, m_fCanvasWidth, m_fCanvasHeight );
 
@@ -1132,8 +1177,14 @@ void SsRendererImpl::renderSpriteSimple( float matrix[16], int width, int height
 //	pVisualServer->draw( false );
 //	pVisualServer->sync();
 
-	pVisualServer->material_set_param( pSprite->materialId, "color", m_RendererColor.getTextureRid() );
-	pVisualServer->material_set_param( pSprite->materialId, "alpha", m_RendererAlpha.getTextureRid() );
+	/* MEMO: Ver.3 and Ver.4 handle vertex-colors differently on "fragment" shader.            */
+	/*       In Ver.4, before user's "fragment" processing, "COLOR" is multiplied texel-color. */
+	/*       In order to get unprocessed vertex-color, set dummy (always white) to "TEXTURE"   */
+	/*         and decode original-texture on another-stage.  (Measures for Ver.4 spec.)       */
+	pVisualServer->material_set_param( pSprite->materialId, "color", RID() );
+	pVisualServer->material_set_param( pSprite->materialId, "alpha", RID() );
+	pVisualServer->material_set_param( pSprite->materialId, "color_authentic", texture->get_rid() );
+	pVisualServer->material_set_param( pSprite->materialId, "alpha_authentic", texture->get_rid() );
 
 	pVisualServer->canvas_item_add_triangle_array(
 		colorCanvasItemId,
@@ -1143,7 +1194,7 @@ void SsRendererImpl::renderSpriteSimple( float matrix[16], int width, int height
 		vecCoord,
 		vecBone,
 		vecWeight,
-		texture->get_rid()
+		RID()	// texture->get_rid()
 	);
 }
 
@@ -1326,7 +1377,7 @@ void SsRendererImpl::updateShaderSource( PartSprite& sprite, SsBlendType::_enum 
 
 	float	fComposite = 0.0f;
 
-	switch ( eBlendType ) {
+	switch ( static_cast<int>(eBlendType) ) {
 	case SsBlendType::mix :
 		fComposite = 0.0f;
 		break;
@@ -1514,7 +1565,12 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 //		glTexParameteri(gl_target, GL_TEXTURE_WRAP_T, wrapMode);
 
 		// セルが持つUV値をまず設定
-		std::memcpy( state->uvs, state->cellValue.uvs, sizeof( state->uvs ));
+		//std::memcpy( state->uvs, state->cellValue.uvs, sizeof( state->uvs ));
+		for (int i = 0; i < sizeof(state->cellValue.uvs) / sizeof(state->cellValue.uvs[0]); i++)
+		{
+			state->uvs[i * 2 + 0] = state->cellValue.uvs[i].x;
+			state->uvs[i * 2 + 1] = state->cellValue.uvs[i].y;
+		}
 
 		// UV アニメの適用
 //		glMatrixMode(GL_TEXTURE);
@@ -1606,7 +1662,7 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 		fCoordCV = 0.0f;
 		for (int i = 0; i < 4; ++i)
 		{
-			int idx = *uvorder;
+			int idx = uvorder[i];
 			if (texture_is_pow2 == false)
 			{
 				// GL_TEXTURE_RECTANGLE_ARBではuv座標系が0～1ではなくピクセルになるので変換
@@ -1631,11 +1687,13 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 #endif
 			}
 
-			++uvorder;
+			// スコープを抜けた後の範囲外読み取りの修正
+			//++uvorder;
 		}
+
 		for (int i = 0; i < 4; ++i)
 		{
-			int idx = *uvorder;
+			int idx = uvorder[i];
 			SsVector3	vertexIn;
 			SsVector3	vertexOut;
 
@@ -1646,12 +1704,11 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 			MatrixTransformVector3( texMat, vertexIn, vertexOut );
 			uvs[idx * 2] = vertexOut.x;
 			uvs[idx * 2 + 1] = vertexOut.y;
-
-			++uvorder;
 		}
+
 		for (int i = 0; i < 4; ++i)
 		{
-			int idx = *uvorder;
+			int idx = uvorder[i];
 			if ( i == 0 ) {
 				fCoordLU = uvs[idx * 2];
 				fCoordTV = uvs[idx * 2 + 1];
@@ -1666,8 +1723,6 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 
 			fCoordCU += uvs[idx * 2];
 			fCoordCV += uvs[idx * 2 + 1];
-
-			++uvorder;
 		}
 
 #if SPRITESTUDIO6SDK_USE_TRIANGLE_FIN
@@ -1745,6 +1800,7 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 				{
 					state->colors[i * 4 + 3] *= alpha;
 				}
+
 				rates[i] = 1.0f;
 				vertexID[i * 2] = i;
 				vertexID[i * 2 + 1] = i;
@@ -1766,6 +1822,7 @@ void SsRendererImpl::makePrimitive( SsPartState* state )
 	else
 	{
 		// パーツカラー無し
+		calcCenterVertexColor(state->colors, rates, vertexID);
 		for (int i = 0; i < 5; ++i)
 			state->colors[i * 4 + 3] = alpha;
 
@@ -1955,23 +2012,54 @@ void SsRendererImpl::freePartSprites()
 	for ( int i = 0; i < m_vecPartSprite.size(); i++ ) {
 		auto	e = m_vecPartSprite[i];
 
-		if ( e->colorCanvasItemId.is_valid() ) pVisualServer->free( e->colorCanvasItemId );
-		if ( e->alphaCanvasItemId.is_valid() ) pVisualServer->free( e->alphaCanvasItemId );
+		if ( e->colorCanvasItemId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+			pVisualServer->free_rid( e->colorCanvasItemId );
+#else
+			pVisualServer->free( e->colorCanvasItemId );
+#endif
+
+		if ( e->alphaCanvasItemId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+		pVisualServer->free_rid( e->colorCanvasItemId );
+#else
+		pVisualServer->free( e->alphaCanvasItemId );
+#endif
 
 		for ( int j = 0; j < e->vecChildColorCanvasItemId.size(); j++ ) {
 			auto	e2 = e->vecChildColorCanvasItemId[j];
 
-			if ( e2.is_valid() ) pVisualServer->free( e2 );
+			if ( e2.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( e2 );
+#else
+				pVisualServer->free( e2 );
+#endif
 		}
 
 		for ( int j = 0; j < e->vecChildAlphaCanvasItemId.size(); j++ ) {
 			auto	e2 = e->vecChildAlphaCanvasItemId[j];
 
-			if ( e2.is_valid() ) pVisualServer->free( e2 );
+			if ( e2.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( e2 );
+#else
+				pVisualServer->free( e2 );
+#endif
 		}
 
-		if ( e->materialId.is_valid() ) pVisualServer->free( e->materialId );
-		if ( e->shaderId.is_valid() ) pVisualServer->free( e->shaderId );
+		if ( e->materialId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+			pVisualServer->free_rid( e->materialId );
+#else
+			pVisualServer->free( e->materialId );
+#endif
+		if ( e->shaderId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+			pVisualServer->free_rid( e->shaderId );
+#else
+			pVisualServer->free( e->materialId );
+#endif
 
 		delete e;
 	}
@@ -1982,23 +2070,53 @@ void SsRendererImpl::freePartSprites()
 		for ( auto it2 = e.begin(); it2 != e.end(); it2++ ) {
 			auto	ee = *it2;
 
-			if ( ee->colorCanvasItemId.is_valid() ) pVisualServer->free( ee->colorCanvasItemId );
-			if ( ee->alphaCanvasItemId.is_valid() ) pVisualServer->free( ee->alphaCanvasItemId );
+			if ( ee->colorCanvasItemId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( ee->colorCanvasItemId );
+#else
+				pVisualServer->free( ee->colorCanvasItemId );
+#endif
+			if ( ee->alphaCanvasItemId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( ee->alphaCanvasItemId );
+#else
+				pVisualServer->free( ee->alphaCanvasItemId );
+#endif
 
 			for ( int j = 0; j < ee->vecChildColorCanvasItemId.size(); j++ ) {
 				auto	e2 = ee->vecChildColorCanvasItemId[j];
 
-				if ( e2.is_valid() ) pVisualServer->free( e2 );
+				if ( e2.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( e2 );
+#else
+				pVisualServer->free( e2 );
+#endif
 			}
 
 			for ( int j = 0; j < ee->vecChildAlphaCanvasItemId.size(); j++ ) {
 				auto	e2 = ee->vecChildAlphaCanvasItemId[j];
 
-				if ( e2.is_valid() ) pVisualServer->free( e2 );
+				if ( e2.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+					pVisualServer->free_rid( e2 );
+#else
+					pVisualServer->free( e2 );
+#endif
 			}
 
-			if ( ee->materialId.is_valid() ) pVisualServer->free( ee->materialId );
-			if ( ee->shaderId.is_valid() ) pVisualServer->free( ee->shaderId );
+			if ( ee->materialId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( ee->materialId );
+#else
+				pVisualServer->free( ee->materialId );
+#endif
+			if ( ee->shaderId.is_valid() )
+#ifdef SPRITESTUDIO_GODOT_EXTENSION
+				pVisualServer->free_rid( ee->materialId );
+#else
+				pVisualServer->free( ee->shaderId );
+#endif
 
 			delete ee;
 		}

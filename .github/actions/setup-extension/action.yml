@@ -1,0 +1,34 @@
+name: Setup extension
+description: Setup build dependencies for extension.
+
+inputs:
+  platform:
+    required: true
+    description: Target platform.
+  os:
+    required: true
+    description: build host os.
+
+runs:
+  using: composite
+  steps:
+    - name: install zsh
+      if: startsWith(inputs.os, 'ubuntu-')
+      shell: bash
+      run: sudo apt-get update; sudo apt-get install zsh
+
+    - name: prepare scons
+      uses: ./.github/actions/setup-scons
+
+    - name: Setup Android dependencies
+      if: inputs.platform == 'android'
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r23c
+        link-to-sdk: true
+
+    - name: Setup Web dependencies
+      if: inputs.platform == 'web'
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        no-cache: true
